@@ -397,6 +397,19 @@ fun aggregates(): List<GenericFunction> {
             return accumulator
             """
         }
+        body(Lists) {
+            """
+            var accumulator = initial
+            if (!isEmpty()) {
+                val iterator = listIterator(size)
+                while (iterator.hasPrevious()) {
+                    val index = iterator.previousIndex()
+                    accumulator = operation(index, iterator.previous(), accumulator)
+                }
+            }
+            return accumulator
+            """
+        }
     }
 
     templates add f("fold(initial: R, operation: (R, T) -> R)") {
@@ -428,6 +441,18 @@ fun aggregates(): List<GenericFunction> {
             var accumulator = initial
             while (index >= 0) {
                 accumulator = operation(get(index--), accumulator)
+            }
+            return accumulator
+            """
+        }
+        body(Lists) {
+            """
+            var accumulator = initial
+            if (!isEmpty()) {
+                val iterator = listIterator(size)
+                while (iterator.hasPrevious()) {
+                    accumulator = operation(iterator.previous(), accumulator)
+                }
             }
             return accumulator
             """
@@ -553,6 +578,21 @@ fun aggregates(): List<GenericFunction> {
             return accumulator
             """
         }
+        body(Lists) {
+            """
+            val iterator = listIterator(size)
+            if (!iterator.hasPrevious())
+                throw UnsupportedOperationException("Empty list can't be reduced.")
+
+            var accumulator: S = iterator.previous()
+            while (iterator.hasPrevious()) {
+                val index = iterator.previousIndex()
+                accumulator = operation(index, iterator.previous(), accumulator)
+            }
+
+            return accumulator
+            """
+        }
     }
 
     templates add f("reduce(operation: (T, T) -> T)") {
@@ -646,6 +686,20 @@ fun aggregates(): List<GenericFunction> {
             var accumulator: S = get(index--)
             while (index >= 0) {
                 accumulator = operation(get(index--), accumulator)
+            }
+
+            return accumulator
+            """
+        }
+        body(Lists) {
+            """
+            val iterator = listIterator(size)
+            if (!iterator.hasPrevious())
+                throw UnsupportedOperationException("Empty list can't be reduced.")
+
+            var accumulator: S = iterator.previous()
+            while (iterator.hasPrevious()) {
+                accumulator = operation(iterator.previous(), accumulator)
             }
 
             return accumulator

@@ -24,20 +24,21 @@ import org.jetbrains.kotlin.js.inline.util.rewriters.LabelNameRefreshingVisitor
 fun aliasArgumentsIfNeeded(
         context: NamingContext,
         arguments: List<JsExpression>,
-        parameters: List<JsParameter>
+        parameters: List<JsParameter>,
+        tryAlias: Boolean = true
 ) {
     require(arguments.size <= parameters.size) { "arguments.size (${arguments.size}) should be less or equal to parameters.size (${parameters.size})" }
 
     for ((arg, param) in arguments.zip(parameters)) {
         val paramName = param.name
         val replacement =
-                if (arg.needToAlias()) {
+                if (tryAlias && arg.needToAlias()) {
                     val freshName = context.getFreshName(paramName)
                     context.newVar(freshName, arg)
                     freshName.makeRef()
-                } else {
-                    arg
                 }
+                else
+                    arg
 
         context.replaceName(paramName, replacement)
     }

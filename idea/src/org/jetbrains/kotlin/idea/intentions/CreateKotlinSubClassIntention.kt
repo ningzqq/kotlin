@@ -32,6 +32,7 @@ import org.jetbrains.kotlin.idea.quickfix.unblockDocument
 import org.jetbrains.kotlin.idea.refactoring.getOrCreateKotlinFile
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.psi.KtPsiFactory.ClassHeaderBuilder
 import org.jetbrains.kotlin.psi.psiUtil.*
 import org.jetbrains.kotlin.resolve.ModifiersChecker
 
@@ -84,13 +85,10 @@ class CreateKotlinSubClassIntention : SelfTargetingRangeIntention<KtClass>(KtCla
 
     private fun defaultTargetName(klass: KtClass) = "${klass.name!!}$IMPL_SUFFIX"
 
-    private fun defaultClassHeader(klass: KtClass) = "class ${defaultTargetName(klass)}"
-
     private fun createSealedSubclass(sealedClass: KtClass, editor: Editor?) {
-        val classFromText = KtPsiFactory(sealedClass.project).createClass(defaultClassHeader(sealedClass))
-        val body = sealedClass.getOrCreateBody()
-        val rbrace = body.node.findChildByType(KtTokens.RBRACE)
-        setClassHeader(sealedClass.project, sealedClass, body.addBefore(classFromText, rbrace!!.psi) as KtClass, editor)
+        val builder = buildClassHeader(defaultTargetName(sealedClass), sealedClass)
+        val project = sealedClass.project
+        chooseAndImplementMethods(project, KtPsiFactory(project).createClass(builder.asString()), editor)
     }
 
     private fun createExternalSubclass(baseClass: KtClass, editor: Editor?) {
@@ -114,19 +112,22 @@ class CreateKotlinSubClassIntention : SelfTargetingRangeIntention<KtClass>(KtCla
                 break
             }
         }
-        val factory = KtPsiFactory(baseClass.project)
+        val project = baseClass.project
+        val factory = KtPsiFactory(project)
+        val klass: KtClass
         if (container.containingClassOrObject == null && !ApplicationManager.getApplication().isUnitTestMode) {
             val dlg = chooseSubclassToCreate(baseClass) ?: return
             val targetName = dlg.className
             val file = getOrCreateKotlinFile("$targetName.kt", dlg.targetDirectory)!!
-            file.add(factory.createClass("class $targetName"))
-            setClassHeader(baseClass.project, baseClass, file.getChildOfType<KtClass>()!!, editor)
+            val builder = buildClassHeader(targetName, baseClass)
+            klass = factory.createClass(builder.asString())
+            file.add(klass)
         }
         else {
-            val classFromText = factory.createClass(defaultClassHeader(baseClass))
-            setClassHeader(baseClass.project, baseClass, container.parent.addAfter(classFromText, container) as KtClass,
-                           editor, name, visibility)
+            val builder = buildClassHeader(defaultTargetName(baseClass), baseClass, name, visibility)
+            klass = factory.createClass(builder.asString())
         }
+        chooseAndImplementMethods(project, klass, editor)
     }
 
     private fun chooseSubclassToCreate(baseClass: KtClass): CreateClassDialog? {
@@ -147,48 +148,26 @@ class CreateKotlinSubClassIntention : SelfTargetingRangeIntention<KtClass>(KtCla
         return if (!dialog.showAndGet() || dialog.targetDirectory == null) null else dialog
     }
 
-    private fun setClassHeader(
-            project: Project,
+    private fun buildClassHeader(
+            targetName: String,
             baseClass: KtClass,
-            targetClass: KtClass,
-            editor: Editor?,
-            name: String = baseClass.name!!,
+            baseName: String = baseClass.name!!,
             defaultVisibility: Visibility = ModifiersChecker.resolveVisibilityFromModifiers(baseClass, Visibilities.PUBLIC)
-    ) {
-        val factory = KtPsiFactory(project)
-        val typeParameterList = baseClass.typeParameterList
-        if (typeParameterList != null) {
-            targetClass.add(factory.createTypeParameterList(typeParameterList.text))
-        }
-        val superTypeEntry: KtSuperTypeListEntry
-        if (baseClass.isInterface()) {
-            superTypeEntry = factory.createSuperTypeEntry(name)
-        }
-        else {
-            var modifiers = ""
+    ): ClassHeaderBuilder {
+        return ClassHeaderBuilder().apply {
             if (defaultVisibility != Visibilities.PUBLIC) {
-                modifiers += defaultVisibility.name
+                modifier(defaultVisibility.name)
             }
             if (baseClass.isInner()) {
-                modifiers += " inner"
+                modifier("inner")
             }
-            if (modifiers.isNotEmpty()) {
-                KtPsiUtil.replaceModifierList(targetClass, factory.createModifierList(modifiers))
-            }
-            superTypeEntry = factory.createSuperTypeCallEntry("$name()")
+            name(targetName)
+            val typeParameters = baseClass.typeParameterList?.parameters
+            typeParameters(typeParameters?.map { it.text } ?: emptyList())
+            baseClass(baseName, baseClass.isInterface())
+            typeArguments(typeParameters?.map { it.name!! } ?: emptyList())
+            typeConstraints(baseClass.typeConstraintList?.constraints?.map { it.text } ?: emptyList())
         }
-        if (typeParameterList != null) {
-            val typeArgumentsString = typeParameterList.parameters.map { it.name }.joinToString()
-            val typeArguments = factory.createTypeArguments("<$typeArgumentsString>")
-            if (baseClass.isInterface()) {
-                superTypeEntry.add(typeArguments)
-            }
-            else {
-                superTypeEntry.addAfter(typeArguments, superTypeEntry.getChildOfType<KtConstructorCalleeExpression>())
-            }
-        }
-        targetClass.addSuperTypeListEntry(superTypeEntry)
-        chooseAndImplementMethods(project, targetClass, editor)
     }
 
     private fun chooseAndImplementMethods(project: Project, targetClass: KtClass, editor: Editor?) {
